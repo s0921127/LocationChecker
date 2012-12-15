@@ -1,9 +1,25 @@
 package jp.dip.commonsense;
 
+import java.io.IOException;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.HttpStatus;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpUriRequest;
+import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.params.HttpConnectionParams;
+import org.apache.http.params.HttpParams;
+import org.apache.http.util.EntityUtils;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import android.app.Activity;
 import android.content.ContentValues;
@@ -15,7 +31,10 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.location.LocationProvider;
+import android.net.ParseException;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.StrictMode;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -102,14 +121,15 @@ public class LocationCheckerActivity extends Activity implements
 		db = helper.getReadableDatabase();
 		String out = "";
 		try {
-			String[] columns = { "_id", "Latitude","Longitude" };
+			String[] columns = { "_id", "Latitude","Longitude", "name" };
 			// クエリの結果を取得
 			Cursor cursor = db.query("test", columns, null, null, null, null, "_id");
 			// 取得結果を文字列結合
 			while (cursor.moveToNext()) {
 				out += cursor.getInt(0) + ":Latitude = ";
 				out += cursor.getString(1) + ",Longitude = ";
-				out += cursor.getString(2) + "\n";
+				out += cursor.getString(2) + ",name = ";
+				out += cursor.getString(3) + "\n";
 			}
 			// データベースの内容を出力
 			//text.setText(out);
@@ -169,8 +189,7 @@ public class LocationCheckerActivity extends Activity implements
 			int distance = Integer.valueOf(distanceEdit.getText().toString());
 			List<String> providers = locationManager.getProviders(true);
 			for (String provider : providers) {
-				locationManager.requestLocationUpdates(provider, time,
-						distance, this);
+				locationManager.requestLocationUpdates(provider, time, distance, this);
 				// 第1引数=プロバイダ
 				// 第2引数=通知のための最小時間間隔
 				// 第3引数=通知のための最小距離間隔
@@ -181,9 +200,12 @@ public class LocationCheckerActivity extends Activity implements
 	}
 
 	@Override
-	public void onLocationChanged(Location location) {
-		elapsedTimeText
-				.setText(String.valueOf((System.currentTimeMillis() - startTime)));
+	public void onLocationChanged(Location location) {    	
+		
+		//staticブロックなど、アプリケーション開始前に実行する。
+    	StrictMode.setThreadPolicy(new StrictMode.ThreadPolicy.Builder().permitAll().build());
+    	
+		elapsedTimeText.setText(String.valueOf((System.currentTimeMillis() - startTime)));
 		logText.setText(String.valueOf(location.getLongitude()));
 		latText.setText(String.valueOf(location.getLatitude()));
 		accText.setText(String.valueOf(location.getAccuracy()));
@@ -191,36 +213,141 @@ public class LocationCheckerActivity extends Activity implements
 		Date d = new Date(location.getTime());
 		locationTimeText.setText(d.toLocaleString());
 		startTime = System.currentTimeMillis();
+		
 		try{
 			// テーブル作成
 			String sql = "create table test("
 					+ "_id integer primary key autoincrement,"
 					+ "Latitude text not null,"
-					+ "Longitude text not null" +")";
+					+ "Longitude text not null,"
+					+ "name text not null"+")";
 			db.execSQL(sql);
 		}catch(Exception e){
 			// テーブル作成失敗かすでにあるとき
 			// Log.e("ERROR",e.toString());
 			// Toast.makeText(this, "テーブル作成失敗", Toast.LENGTH_LONG).show();        	
 		}
+		
+		Log.e("テーブル作成","debug1");
+	  		
 		if(count == 0){
-			String resultsString = "";
-			db = helper.getWritableDatabase();
-			try{
-				// データベース挿入処理
+			//String resultsString = "";
+			db = helper.getWritableDatabase();	
+			
+			String scheme = "https";
+	        String authority = "api.foursquare.com";
+	        String path = "/v2/venues/search";
+	        
+	        String ll = location.getLatitude() + ", " + location.getLongitude();
+	        String oauth_token = "G4RUWUY4YAKSUWLEWLXPHRBQJZATY4XPTIAI4OT02CXMLMM3";
+	        String v = "20121017";
+	        Uri.Builder uriBuilder = new Uri.Builder();
+	        
+	        uriBuilder.scheme(scheme);
+	        uriBuilder.authority(authority);
+	        uriBuilder.path(path);
+	        uriBuilder.appendQueryParameter("ll", ll);
+	        uriBuilder.appendQueryParameter("oauth_token", oauth_token);
+	        uriBuilder.appendQueryParameter("v", v);
+	     
+	        String uri = uriBuilder.toString();
+	        
+	        Log.e("URL作成","debug2");
+	        
+	        HttpClient httpClient = new DefaultHttpClient();
+	        HttpParams params = httpClient.getParams();
+	        //HttpConnectionParams.setConnectionTimeout(params, 1000);
+	        //HttpConnectionParams.setSoTimeout(params, 1000);
+	        
+	        HttpUriRequest httpRequest = new HttpGet(uri);
+	        
+	        HttpResponse httpResponse = null;
+	        
+	        try {
+	        	Log.e("レスポンス作成開始","debug11");
+	            httpResponse = httpClient.execute(httpRequest);    //エラー原因
+	            if(httpResponse != null)
+	            	Log.e("レスポンス作成","debug10");
+	            else
+	            	Log.e("レスポンス作成失敗","debug10");
+	        }
+	        catch (ClientProtocolException e) {
+	            //例外処理
+	        	Log.e("レスポンス作成失敗","debug13");
+	        }
+	        catch (IOException e){
+	            //例外処理
+	        	Log.e("レスポンス作成失敗","debug13");
+	        }
+	        
+	        String json = null;
+	        
+	        if (httpResponse != null && httpResponse.getStatusLine().getStatusCode() == HttpStatus.SC_OK){
+	            HttpEntity httpEntity = httpResponse.getEntity();
+	            try {
+	            	 Log.e("JSONデータの取得","debug9");
+	                json = EntityUtils.toString(httpEntity);
+	            }
+	            catch (ParseException e) {
+	                //例外処理
+	            }
+	            catch (IOException e) {
+	                //例外処理
+	            }
+	            finally {
+	                try {
+	                    httpEntity.consumeContent();
+	                }
+	                catch (IOException e) {
+	                    //例外処理
+	                }
+	            }
+	        }
+	        
+	        httpClient.getConnectionManager().shutdown();
+	        
+	        Log.e("HTTP通信","debug3");
+	        
+	        try {
+	        	 Log.e("導入","debug8");
+	            JSONObject rootObject = new JSONObject(json);
+	            JSONObject responseObject = rootObject.getJSONObject("response");
+	            JSONArray  venuesArray = responseObject.getJSONArray("venues");
+	            JSONArray  categoriesArray = venuesArray.getJSONObject(0).getJSONArray("categories");
+	            
+	            Log.e("オブジェクトのさかのぼり","debug5");
+	            JSONObject bookObject[] = new JSONObject[2];
+	            
+	            bookObject[0] = venuesArray.getJSONObject(0);
+	            bookObject[1] = categoriesArray.getJSONObject(0);
+	            
+	            Log.e("オブジェクトの代入","debug6");
+	            // 地名のデータを取得
+	            String name = bookObject[0].getString("name");
+	            
+	            //　カテゴリのデータを取得
+	            String category = bookObject[1].getString("shortName");
+	            
+	            Log.e("データ取得","debug7");
+	            // データベース挿入処理
 				db.beginTransaction();
 				ContentValues val = new ContentValues();
 				val.put("latitude", location.getLatitude());
 				val.put("longitude", location.getLongitude());
+				val.put("name", name);
 				db.insert("test","",val);	
 				db.setTransactionSuccessful();
 				db.endTransaction();
+				
+				 Log.e("データベース格納","debug4");
 			
-				resultsString = "成功";
-        	}catch(Exception e){
-        		resultsString = "失敗";
+				//resultsString = "成功";
+	        } 
+	        catch (Exception e) {
+	            // 例外処理
+	        	//resultsString = "失敗";
         		Log.e("ERROR",e.toString());
-        	}
+	        }
 		}
 		count += 1;
 		if(count == 2){
