@@ -4,9 +4,9 @@ import android.content.Context;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 
-public class LocationDB extends SQLiteOpenHelper {
-	public LocationDB(Context context){
-		super(context,"LocationDB.db",null,1);
+public class categoryDB extends SQLiteOpenHelper {
+	public categoryDB(Context context){
+		super(context,"categoryDB.db",null,1);
 	}
 	
 	@Override
@@ -19,7 +19,7 @@ public class LocationDB extends SQLiteOpenHelper {
 		// TODO 自動生成されたメソッド・スタブ
 		// データベースのアップグレード
 		// ここでは、テーブルを作り直しをしています
-		db.execSQL("drop table if exists " + "test");
+		db.execSQL("drop table if exists " + "categoryDB");
 		onCreate(db);
 	}
 }

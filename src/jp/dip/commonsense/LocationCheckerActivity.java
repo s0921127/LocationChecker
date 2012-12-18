@@ -46,15 +46,19 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 public class LocationCheckerActivity extends Activity implements
-		LocationListener, GpsStatus.Listener, GpsStatus.NmeaListener,
+		LocationListener, GpsStatus.Listener,
 		View.OnClickListener {
 	// = 0 の部分は、適当な値に変更してください（とりあえず試すには問題ないですが）
 	private static final int REQUEST_CODE = 1;
-	LocationDB helper = null;
-	SQLiteDatabase db = null;
-	int count = 0;
-	private MenuItem MENU_SELECT_A;
-	private MenuItem MENU_SELECT_B;
+	
+	/* データベース利用の設定 */
+	locationDB helper = null;
+	SQLiteDatabase locationDB = null;
+	
+	int count = 0;  /* onLocationChangedの実行回数カウント用 */
+	
+	private MenuItem MENU_SELECT_A;  /* データベース出力用ボタン */
+	private MenuItem MENU_SELECT_B;  /* データベース入力用ボタン */
 
 	private static final int ID_LOCATION_PROVIDER_ENABLED = 0;
 	private static final int ID_LOCATION_PROVIDER_STATUS = 1;
@@ -64,12 +68,11 @@ public class LocationCheckerActivity extends Activity implements
 	private LocationManager locationManager;
 	private Map<String, LinearLayout> layoutMap = new HashMap<String, LinearLayout>();
 
-	private TextView elapsedTimeText;
-	private TextView logText;
-	private TextView latText;
-	private TextView accText;
-	private TextView providerText;
-	private TextView locationTimeText;
+	private TextView elapsedTimeText;    /* 経過時間のテキストビュー */
+	private TextView logText;            /* 経度のテキストビュー */
+	private TextView latText;            /* 緯度のテキストビュー */
+	private TextView providerText;       /* プロバイダのテキストビュー */
+	private TextView locationTimeText;   /* 現在時間のテキストビュー */
 
 	private long startTime = 0;
 
@@ -78,11 +81,11 @@ public class LocationCheckerActivity extends Activity implements
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.main);
 
-		helper = new LocationDB(LocationCheckerActivity.this);
+		helper = new locationDB(LocationCheckerActivity.this);
 
+		/* テキストビューの設定 */
 		logText = (TextView) findViewById(R.id.longitude);
 		latText = (TextView) findViewById(R.id.latitude);
-		accText = (TextView) findViewById(R.id.accuracy);
 		providerText = (TextView) findViewById(R.id.provider);
 		locationTimeText = (TextView) findViewById(R.id.time);
 		elapsedTimeText = (TextView) findViewById(R.id.elapsed_time);
@@ -90,7 +93,6 @@ public class LocationCheckerActivity extends Activity implements
 		((Button) findViewById(R.id.stop)).setOnClickListener(this);
 		locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
 		locationManager.addGpsStatusListener(this);
-		locationManager.addNmeaListener(this);
 		List<String> providers = locationManager.getAllProviders();
 		LinearLayout layout = (LinearLayout) findViewById(R.id.layout);
 		for (String provider : providers) {
@@ -116,60 +118,13 @@ public class LocationCheckerActivity extends Activity implements
 		}
 	}
 	
-	// データベース取得
-	public void sDatabase() {
-		db = helper.getReadableDatabase();
-		String out = "";
-		try {
-			String[] columns = { "_id", "Latitude","Longitude", "name" };
-			// クエリの結果を取得
-			Cursor cursor = db.query("test", columns, null, null, null, null, "_id");
-			// 取得結果を文字列結合
-			while (cursor.moveToNext()) {
-				out += cursor.getInt(0) + ":Latitude = ";
-				out += cursor.getString(1) + ",Longitude = ";
-				out += cursor.getString(2) + ",name = ";
-				out += cursor.getString(3) + "\n";
-			}
-			// データベースの内容を出力
-			//text.setText(out);
-						
-			Intent intent=new Intent();
-			intent.setClassName("jp.dip.commonsense","jp.dip.commonsense.subActivity");
-			intent.putExtra("jp.dip.commonsense.testString", out);
-				 
-			startActivity(intent);
-		} catch (Exception e) {
-			// エラー処理
-			Log.e("ERROR", e.toString());
-			Toast.makeText(this, "失敗", Toast.LENGTH_LONG).show();
-			//text.setText("error!");
-		}
-	}
 	
-	// データベース削除
-	public void dDatabase() {
-		try {
-			db = helper.getWritableDatabase();
-			db.beginTransaction();
-			//データベース削除のSQL文
-			db.delete("test",null,null);
-			db.execSQL("drop table test");
-			db.setTransactionSuccessful();
-			db.endTransaction();
-			Toast.makeText(this, "成功", Toast.LENGTH_LONG).show();
-		} catch (Exception e) {
-			Log.e("ERROR", e.toString());
-			Toast.makeText(this, "失敗", Toast.LENGTH_LONG).show();
-		}
-	}
 
 	@Override
 	protected void onDestroy() {
 		super.onDestroy();
 		// 重要：requestLocationUpdatesしたままアプリを終了すると挙動がおかしくなる。
 		locationManager.removeUpdates(this);
-		locationManager.removeNmeaListener(this);
 		locationManager.removeGpsStatusListener(this);
 	}
 
@@ -179,7 +134,6 @@ public class LocationCheckerActivity extends Activity implements
 		elapsedTimeText.setText("");
 		logText.setText("");
 		latText.setText("");
-		accText.setText("");
 		providerText.setText("");
 		locationTimeText.setText("");
 		if (v.getId() == R.id.start) {
@@ -191,8 +145,8 @@ public class LocationCheckerActivity extends Activity implements
 			for (String provider : providers) {
 				locationManager.requestLocationUpdates(provider, time, distance, this);
 				// 第1引数=プロバイダ
-				// 第2引数=通知のための最小時間間隔
-				// 第3引数=通知のための最小距離間隔
+				// 第2引数=通知のための最小時間間隔(ミリ秒)
+				// 第3引数=通知のための最小距離間隔(メートル)
 				// 第4引数=位置情報リスナー
 			}
 			startTime = System.currentTimeMillis();
@@ -205,10 +159,83 @@ public class LocationCheckerActivity extends Activity implements
 		//staticブロックなど、アプリケーション開始前に実行する。
     	StrictMode.setThreadPolicy(new StrictMode.ThreadPolicy.Builder().permitAll().build());
     	
+    	String scheme = "https";
+        String authority = "api.foursquare.com";
+        String path = "/v2/venues/search";
+        
+        String ll = location.getLatitude() + ", " + location.getLongitude();
+        String oauth_token = "G4RUWUY4YAKSUWLEWLXPHRBQJZATY4XPTIAI4OT02CXMLMM3";
+        String v = "20121017";
+        Uri.Builder uriBuilder = new Uri.Builder();
+        
+        uriBuilder.scheme(scheme);
+        uriBuilder.authority(authority);
+        uriBuilder.path(path);
+        uriBuilder.appendQueryParameter("ll", ll);
+        uriBuilder.appendQueryParameter("oauth_token", oauth_token);
+        uriBuilder.appendQueryParameter("v", v);
+     
+        String uri = uriBuilder.toString();
+        
+        Log.e("URL作成","debug2");
+        
+        HttpClient httpClient = new DefaultHttpClient();
+        HttpParams params = httpClient.getParams();
+        HttpConnectionParams.setConnectionTimeout(params, 1000);
+        HttpConnectionParams.setSoTimeout(params, 1000);
+        
+        HttpUriRequest httpRequest = new HttpGet(uri);
+        
+        HttpResponse httpResponse = null;
+        
+        try {
+        	Log.e("レスポンス作成開始","debug11");
+            httpResponse = httpClient.execute(httpRequest);
+            if(httpResponse != null)
+            	Log.e("レスポンス作成","debug10");
+            else
+            	Log.e("レスポンス作成失敗","debug10");
+        }
+        catch (ClientProtocolException e) {
+            //例外処理
+        	Log.e("レスポンス作成失敗","debug13");
+        }
+        catch (IOException e){
+            //例外処理
+        	Log.e("レスポンス作成失敗","debug13");
+        }
+        
+        String json = null;
+        
+        if (httpResponse != null && httpResponse.getStatusLine().getStatusCode() == HttpStatus.SC_OK){
+            HttpEntity httpEntity = httpResponse.getEntity();
+            try {
+            	 Log.e("JSONデータの取得","debug9");
+                json = EntityUtils.toString(httpEntity);
+            }
+            catch (ParseException e) {
+                //例外処理
+            }
+            catch (IOException e) {
+                //例外処理
+            }
+            finally {
+                try {
+                    httpEntity.consumeContent();
+                }
+                catch (IOException e) {
+                    //例外処理
+                }
+            }
+        }
+        
+        httpClient.getConnectionManager().shutdown();
+        
+        Log.e("HTTP通信終了","debug3");
+        
 		elapsedTimeText.setText(String.valueOf((System.currentTimeMillis() - startTime)));
 		logText.setText(String.valueOf(location.getLongitude()));
 		latText.setText(String.valueOf(location.getLatitude()));
-		accText.setText(String.valueOf(location.getAccuracy()));
 		providerText.setText(String.valueOf(location.getProvider()));
 		Date d = new Date(location.getTime());
 		locationTimeText.setText(d.toLocaleString());
@@ -216,12 +243,13 @@ public class LocationCheckerActivity extends Activity implements
 		
 		try{
 			// テーブル作成
-			String sql = "create table test("
+			String sql = "create table locationDB("
 					+ "_id integer primary key autoincrement,"
 					+ "Latitude text not null,"
 					+ "Longitude text not null,"
-					+ "name text not null"+")";
-			db.execSQL(sql);
+					+ "name text not null,"
+					+ "category text not null"+")";
+			locationDB.execSQL(sql);
 		}catch(Exception e){
 			// テーブル作成失敗かすでにあるとき
 			// Log.e("ERROR",e.toString());
@@ -232,81 +260,9 @@ public class LocationCheckerActivity extends Activity implements
 	  		
 		if(count == 0){
 			//String resultsString = "";
-			db = helper.getWritableDatabase();	
+			locationDB = helper.getWritableDatabase();	
 			
-			String scheme = "https";
-	        String authority = "api.foursquare.com";
-	        String path = "/v2/venues/search";
-	        
-	        String ll = location.getLatitude() + ", " + location.getLongitude();
-	        String oauth_token = "G4RUWUY4YAKSUWLEWLXPHRBQJZATY4XPTIAI4OT02CXMLMM3";
-	        String v = "20121017";
-	        Uri.Builder uriBuilder = new Uri.Builder();
-	        
-	        uriBuilder.scheme(scheme);
-	        uriBuilder.authority(authority);
-	        uriBuilder.path(path);
-	        uriBuilder.appendQueryParameter("ll", ll);
-	        uriBuilder.appendQueryParameter("oauth_token", oauth_token);
-	        uriBuilder.appendQueryParameter("v", v);
-	     
-	        String uri = uriBuilder.toString();
-	        
-	        Log.e("URL作成","debug2");
-	        
-	        HttpClient httpClient = new DefaultHttpClient();
-	        HttpParams params = httpClient.getParams();
-	        //HttpConnectionParams.setConnectionTimeout(params, 1000);
-	        //HttpConnectionParams.setSoTimeout(params, 1000);
-	        
-	        HttpUriRequest httpRequest = new HttpGet(uri);
-	        
-	        HttpResponse httpResponse = null;
-	        
-	        try {
-	        	Log.e("レスポンス作成開始","debug11");
-	            httpResponse = httpClient.execute(httpRequest);    //エラー原因
-	            if(httpResponse != null)
-	            	Log.e("レスポンス作成","debug10");
-	            else
-	            	Log.e("レスポンス作成失敗","debug10");
-	        }
-	        catch (ClientProtocolException e) {
-	            //例外処理
-	        	Log.e("レスポンス作成失敗","debug13");
-	        }
-	        catch (IOException e){
-	            //例外処理
-	        	Log.e("レスポンス作成失敗","debug13");
-	        }
-	        
-	        String json = null;
-	        
-	        if (httpResponse != null && httpResponse.getStatusLine().getStatusCode() == HttpStatus.SC_OK){
-	            HttpEntity httpEntity = httpResponse.getEntity();
-	            try {
-	            	 Log.e("JSONデータの取得","debug9");
-	                json = EntityUtils.toString(httpEntity);
-	            }
-	            catch (ParseException e) {
-	                //例外処理
-	            }
-	            catch (IOException e) {
-	                //例外処理
-	            }
-	            finally {
-	                try {
-	                    httpEntity.consumeContent();
-	                }
-	                catch (IOException e) {
-	                    //例外処理
-	                }
-	            }
-	        }
-	        
-	        httpClient.getConnectionManager().shutdown();
-	        
-	        Log.e("HTTP通信","debug3");
+			
 	        
 	        try {
 	        	 Log.e("導入","debug8");
@@ -330,14 +286,15 @@ public class LocationCheckerActivity extends Activity implements
 	            
 	            Log.e("データ取得","debug7");
 	            // データベース挿入処理
-				db.beginTransaction();
+	            locationDB.beginTransaction();
 				ContentValues val = new ContentValues();
 				val.put("latitude", location.getLatitude());
 				val.put("longitude", location.getLongitude());
 				val.put("name", name);
-				db.insert("test","",val);	
-				db.setTransactionSuccessful();
-				db.endTransaction();
+				val.put("category", category);
+				locationDB.insert("locationDB","",val);	
+				locationDB.setTransactionSuccessful();
+				locationDB.endTransaction();
 				
 				 Log.e("データベース格納","debug4");
 			
@@ -402,40 +359,56 @@ public class LocationCheckerActivity extends Activity implements
 		}
 		tv.setText(status);
 	}
-
-	@Override
-	public void onNmeaReceived(long timestamp, String nmea) {
-		/*
-		 * Date d = new Date(timestamp); String[] data = nmea.split(","); //
-		 * GPGSV,GPGSA,GPRMC,GPVTG,GPGGA if (data[0].equals("$GPGSA")) {
-		 * TextView tv = (TextView)findViewById(R.id.nmea_gpgsa);
-		 * tv.setText(nmea.trim()); } else if (data[0].equals("$GPRMC")) {
-		 * TextView tv = (TextView)findViewById(R.id.nmea_gprmc);
-		 * tv.setText(nmea.trim()); } else if (data[0].equals("$GPVTG")) {
-		 * TextView tv = (TextView)findViewById(R.id.nmea_gpvtg);
-		 * tv.setText(nmea.trim()); } else if (data[0].equals("$GPGGA")) {
-		 * TextView tv = (TextView)findViewById(R.id.nmea_gpgga);
-		 * tv.setText(nmea.trim()); } else if (data[0].equals("$GPGSV")) {
-		 * LinearLayout layout =
-		 * (LinearLayout)findViewById(R.id.nmea_gpgsv_layout); int messageNum =
-		 * Integer.valueOf(data[2]); TextView tv =
-		 * (TextView)layout.findViewById(messageNum); if (tv == null) { tv = new
-		 * TextView(this); layout.addView(tv); tv.setId(messageNum); }
-		 * tv.setText(nmea.trim()); }
-		 */
-	}
-	/**
-	 * メニューが選択されたとき呼び出される
-	 */
-	public boolean onOptionsItemSelected(MenuItem item){
-		if(item == MENU_SELECT_A){
-			// メニューが選ばれたら、setCenterToNowLocationで地図をスクロールする
-			sDatabase();
-		}else if(item == MENU_SELECT_B){
-			dDatabase();
+	
+	// データベース取得
+		public void sDatabase() {
+			locationDB = helper.getReadableDatabase();
+			String out = "";
+			try {
+				String[] columns = {"_id", "Latitude", "Longitude", "name", "category"};
+				// クエリの結果を取得
+				Cursor cursor = locationDB.query("locationDB", columns, null, null, null, null, "_id");
+				// 取得結果を文字列結合
+				while (cursor.moveToNext()) {
+					out += cursor.getInt(0) + ":Latitude = ";
+					out += cursor.getString(1) + "\n" +"   Longitude = ";
+					out += cursor.getString(2) + "\n" +"   name = ";
+					out += cursor.getString(3) + "\n" +"   category = ";
+					out += cursor.getString(4) + "\n\n";
+				}
+				// データベースの内容を出力
+				//text.setText(out);
+							
+				Intent intent=new Intent();
+				intent.setClassName("jp.dip.commonsense","jp.dip.commonsense.subActivity");
+				intent.putExtra("jp.dip.commonsense.testString", out);
+					 
+				startActivity(intent);
+			} catch (Exception e) {
+				// エラー処理
+				Log.e("ERROR", e.toString());
+				Toast.makeText(this, "失敗", Toast.LENGTH_LONG).show();
+				//text.setText("error!");
+			}
 		}
-		return false;
-	}
+		
+		// データベース削除
+		public void dDatabase() {
+			try {
+				locationDB = helper.getWritableDatabase();
+				locationDB.beginTransaction();
+				//データベース削除のSQL文
+				locationDB.delete("locationDB",null,null);
+				locationDB.execSQL("drop table locationDB");
+				locationDB.setTransactionSuccessful();
+				locationDB.endTransaction();
+				Toast.makeText(this, "成功", Toast.LENGTH_LONG).show();
+			} catch (Exception e) {
+				Log.e("ERROR", e.toString());
+				Toast.makeText(this, "失敗", Toast.LENGTH_LONG).show();
+			}
+		}
+	
 	/**
 	 * ボタンが押されたとき呼び出される
 	 * メニューアイテムを作成する
@@ -445,6 +418,18 @@ public class LocationCheckerActivity extends Activity implements
 		MENU_SELECT_A = menu.add(R.string.sDatabase);
 		MENU_SELECT_B = menu.add(R.string.dDatabase);
 		return true;
+	}
+	
+	/**
+	 * メニューが選択されたとき呼び出される
+	 */
+	public boolean onOptionsItemSelected(MenuItem item){
+		if(item == MENU_SELECT_A){
+			sDatabase();
+		}else if(item == MENU_SELECT_B){
+			dDatabase();
+		}
+		return false;
 	}
 	
 }
