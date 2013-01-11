@@ -21,7 +21,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".subActivity" android:label="@string/sub_name"></activity>4
+        <activity android:name=".subActivity" android:label="@string/sub_name"></activity>
     </application>
     
     <!-- インターネットアクセス権 -->

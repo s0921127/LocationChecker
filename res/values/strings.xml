@@ -6,6 +6,6 @@
     <string name="sub_name">データベース内容</string>
     <string name="sDatabase">データベース内容</string>
     <string name="dDatabase">データベース削除</string>
-    <string name="csvExport">CSV出力</string>
+    <string name="csvExport">txt出力</string>
 
 </resources>
