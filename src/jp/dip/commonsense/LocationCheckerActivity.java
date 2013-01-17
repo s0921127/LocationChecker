@@ -25,6 +25,7 @@ import org.json.JSONObject;
 
 import android.app.Activity;
 import android.content.ContentValues;
+import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
@@ -43,6 +44,8 @@ import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.WindowManager.LayoutParams;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -57,11 +60,16 @@ public class LocationCheckerActivity extends Activity implements
 	/* データベース利用の設定 */
 	SQLiteDatabase locationDB = null;
 	
-	int count = 0;      /* onLocationChangedの実行回数カウント用 */
+	int count = 0;       /* onLocationChangedの実行回数カウント用 */
+	String glat;         /* 経度 */
+	String glong;        /* 緯度 */
+	String name;         /* 地名 */
+	String category;     /* カテゴリ */
 
 	private MenuItem MENU_SELECT_A;     /* データベース出力用ボタン */
 	private MenuItem MENU_SELECT_B;     /* データベース入力用ボタン */
 	private MenuItem MENU_SELECT_C;     /* CSV出力用ボタン */
+	private MenuItem MENU_SELECT_D;     /* 登録ボタン */
 
 	private static final int ID_LOCATION_PROVIDER_ENABLED = 0;
 	private static final int ID_LOCATION_PROVIDER_STATUS = 1;
@@ -76,11 +84,13 @@ public class LocationCheckerActivity extends Activity implements
 	private TextView providerText;          /* プロバイダのテキストビュー */
 	private TextView locationTimeText;      /* 現在時間のテキストビュー */
 
-	private long startTime = 0;
-
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
+		
+		/* アプリ起動時にキーボードを表示しない */
+		this.getWindow().setSoftInputMode(LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+		
 		setContentView(R.layout.main);
 		
 		/* DBコネクション生成	 */																						
@@ -106,8 +116,7 @@ public class LocationCheckerActivity extends Activity implements
 			TextView providerName = new TextView(this);
 			TextView enabled = new TextView(this);
 			enabled.setId(ID_LOCATION_PROVIDER_ENABLED);
-			String e = locationManager.isProviderEnabled(provider) ? PROVIDER_ENABLED
-					: PROVIDER_DISABLED;
+			String e = locationManager.isProviderEnabled(provider) ? PROVIDER_ENABLED : PROVIDER_DISABLED;
 			enabled.setText(e);
 			TextView status = new TextView(this);
 			status.setId(ID_LOCATION_PROVIDER_STATUS);
@@ -120,18 +129,25 @@ public class LocationCheckerActivity extends Activity implements
 			row.addView(status);
 			layout.addView(row);
 		}
+	
 	}
 
 	@Override
 	protected void onDestroy() {
 		super.onDestroy();
+		
 		/* 重要：requestLocationUpdatesしたままアプリを終了すると挙動がおかしくなる。 */
-		locationManager.removeUpdates(this);
-		locationManager.removeGpsStatusListener(this);
+		//locationManager.removeUpdates(this);
+		//locationManager.removeGpsStatusListener(this);
 	}
 
 	@Override
 	public void onClick(View v) {
+		
+		/* ボタン押下時にキーボードを非表示にする */
+		InputMethodManager inputMethodManager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+		inputMethodManager.hideSoftInputFromWindow(v.getWindowToken(), 0);
+		
 		locationManager.removeUpdates(this);
 		logText.setText("");
 		latText.setText("");
@@ -151,110 +167,33 @@ public class LocationCheckerActivity extends Activity implements
 				/* 第3引数=通知のための最小距離間隔(メートル) */
 				/* 第4引数=位置情報リスナー */
 			}
-			startTime = System.currentTimeMillis();
 		}
 	}
 
+	/* ロケーション情報が変更されたとき実行 */
 	@Override
 	public void onLocationChanged(Location location) {
+		
+		glat = String.valueOf(location.getLatitude());
+		glong = String.valueOf(location.getLongitude());
 		
 		/* android.text.format.Timeクラスでの現在日時 */
 		Time time = new Time();
 		time.setToNow();
 		String tmp = time.year + "/" + (time.month + 1) + "/" + time.monthDay
-		        + " " + time.hour + ":" + time.minute+ ":" + time.second;
-		String tMonth = String.valueOf((time.month + 1));
-		if (10 > time.month + 1){
-			tMonth = "0" + tMonth;
-		}
-		Log.v("Time", tmp);
+		        + " " + time.hour + ":" + time.minute+ ":" + time.second;	
 
-		/* staticブロックなど、アプリケーション開始前に実行する。 */
-		StrictMode.setThreadPolicy(new StrictMode.ThreadPolicy.Builder().permitAll().build());
-
-		String scheme = "https";
-		String authority = "api.foursquare.com";
-		String path = "/v2/venues/search";
-
-		String ll = location.getLatitude() + ", " + location.getLongitude();
-		String oauth_token = "G4RUWUY4YAKSUWLEWLXPHRBQJZATY4XPTIAI4OT02CXMLMM3";
-		String v = time.year + tMonth + time.monthDay;
-		Uri.Builder uriBuilder = new Uri.Builder();
-		
-		Log.v("v", v);
-
-		uriBuilder.scheme(scheme);
-		uriBuilder.authority(authority);
-		uriBuilder.path(path);
-		uriBuilder.appendQueryParameter("ll", ll);
-		uriBuilder.appendQueryParameter("oauth_token", oauth_token);
-		uriBuilder.appendQueryParameter("v", v);
-
-		String uri = uriBuilder.toString();
-
-		Log.e("URL作成", "debug2");
-
-		HttpClient httpClient = new DefaultHttpClient();
-		HttpParams params = httpClient.getParams();
-		HttpConnectionParams.setConnectionTimeout(params, 1000);
-		HttpConnectionParams.setSoTimeout(params, 1000);
-
-		HttpUriRequest httpRequest = new HttpGet(uri);
-
-		HttpResponse httpResponse = null;
-
-		try {
-			Log.e("レスポンス作成開始", "debug11");
-			httpResponse = httpClient.execute(httpRequest);
-			if (httpResponse != null)
-				Log.e("レスポンス作成", "debug10");
-			else
-				Log.e("レスポンス作成失敗", "debug10");
-		} catch (ClientProtocolException e) {
-			/* 例外処理 */
-			Log.e("レスポンス作成失敗", "debug13");
-		} catch (IOException e) {
-			/* 例外処理 */
-			Log.e("レスポンス作成失敗", "debug13");
-		}
-
-		String json = null;
-
-		if (httpResponse != null
-				&& httpResponse.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
-			HttpEntity httpEntity = httpResponse.getEntity();
-			try {
-				Log.e("JSONデータの取得", "debug9");
-				json = EntityUtils.toString(httpEntity);
-			} catch (ParseException e) {
-				/* 例外処理 */
-			} catch (IOException e) {
-				/* 例外処理 */
-			} finally {
-				try {
-					httpEntity.consumeContent();
-				} catch (IOException e) {
-					/* 例外処理 */
-				}
-			}
-		}
-
-		httpClient.getConnectionManager().shutdown();
-
-		Log.e("HTTP通信終了", "debug3");
-
-		logText.setText(String.valueOf(location.getLongitude()));
-		latText.setText(String.valueOf(location.getLatitude()));
+		logText.setText(glat);
+		latText.setText(glong);
 		providerText.setText(String.valueOf(location.getProvider()));
 		locationTimeText.setText(tmp);
-		startTime = System.currentTimeMillis();
 
 		try {
-			// テーブル作成
+			/* テーブル作成 */
 			String sql = "create table locationDB("
 					+ "_id integer primary key autoincrement,"
-					+ "Latitude text not null," 
-					+ "Longitude text not null,"
+					+ "Latitude string not null," 
+					+ "Longitude string not null,"
 					+ "name text not null," 
 					+ "category text not null,"
 					+ "year text not null,"
@@ -271,52 +210,24 @@ public class LocationCheckerActivity extends Activity implements
 		}
 
 		Log.e("テーブル作成", "debug1");
+		
+		/* 2点間の距離を計算 */
+		float[] results = new float[1];
+		Location.distanceBetween(location.getLatitude(), location.getLongitude(), 35.4680462, 139.3499151, results);
+		Log.v(String.valueOf(results[0]), "自宅からの距離");
 
 		if (count == 0) {
 			// String resultsString = "";
 
 			try {
-				Log.e("導入", "debug8");
-				JSONObject rootObject = new JSONObject(json);
-				JSONObject responseObject = rootObject.getJSONObject("response");
-				JSONArray venuesArray = responseObject.getJSONArray("venues");
-				
-				int id = 0;               /* 訪れたユーザの数の一番多いvenueの順番 */
-				int distance = 10000;     /* 現在地からvenueまでの距離 */
-				
-				/* 取得したvenueリスト中のvenueの数をログに出力 */
-				Log.e(String.valueOf(venuesArray.length()), "venue数");
-				
-				/* 取得したvenueリストのvenueの中で距離の一番近いvenueを検索 */
-				for(int i = 0; i < venuesArray.length(); i++){
-					JSONObject locationObject = venuesArray.getJSONObject(i).getJSONObject("location");
-					if (distance > Integer.parseInt(locationObject.getString("distance"))){
-						distance = Integer.parseInt(locationObject.getString("distance"));
-						id = i;
-					}
-				}
-				
-				JSONArray categoriesArray = venuesArray.getJSONObject(id).getJSONArray("categories");
-
-				Log.e("オブジェクトのさかのぼり", "debug5");
-				JSONObject bookObject[] = new JSONObject[2];
-
-				bookObject[0] = venuesArray.getJSONObject(id);
-				bookObject[1] = categoriesArray.getJSONObject(0);
-
-				Log.e("オブジェクトの代入", "debug6");
-				/* 地名のデータを取得 */
-				String name = bookObject[0].getString("name");
-
-				/* カテゴリのデータを取得 */
-				String category = bookObject[1].getString("shortName");
+				httpRequest();
 
 				Log.e("データ取得", "debug7");
 				/* データベース挿入処理 */
 				locationDB.beginTransaction();
 				ContentValues val = new ContentValues();
-				val.put("latitude", location.getLatitude());
-				val.put("longitude", location.getLongitude());
+				val.put("latitude", glat);
+				val.put("longitude", glong);
 				val.put("name", name);
 				val.put("category", category);
 				val.put("year", time.year);
@@ -391,8 +302,139 @@ public class LocationCheckerActivity extends Activity implements
 		}
 		tv.setText(status);
 	}
+	
+	/* foursquare APIにURLでリクエストし，地名とカテゴリを取得 */
+	public void httpRequest() {
+		
+		/* android.text.format.Timeクラスでの現在日時 */
+		Time time = new Time();
+		time.setToNow();
+		String tMonth = String.valueOf((time.month + 1));	
+		if (10 > time.month + 1){
+			tMonth = "0" + tMonth;
+		}
+		
+		/* staticブロックなど、アプリケーション開始前に実行する。 */
+		StrictMode.setThreadPolicy(new StrictMode.ThreadPolicy.Builder().permitAll().build());
 
-	// データベース取得
+		String scheme = "https";
+		String authority = "api.foursquare.com";
+		String path = "/v2/venues/search";
+
+		String ll = glat + ", " + glong;
+		String oauth_token = "G4RUWUY4YAKSUWLEWLXPHRBQJZATY4XPTIAI4OT02CXMLMM3";
+		String v = time.year + tMonth + time.monthDay;
+		Uri.Builder uriBuilder = new Uri.Builder();
+		
+		Log.v("v", v);
+
+		uriBuilder.scheme(scheme);
+		uriBuilder.authority(authority);
+		uriBuilder.path(path);
+		uriBuilder.appendQueryParameter("ll", ll);
+		uriBuilder.appendQueryParameter("oauth_token", oauth_token);
+		uriBuilder.appendQueryParameter("v", v);
+
+		String uri = uriBuilder.toString();
+
+		Log.e("URL作成", "debug2");
+
+		HttpClient httpClient = new DefaultHttpClient();
+		HttpParams params = httpClient.getParams();
+		HttpConnectionParams.setConnectionTimeout(params, 1000);
+		HttpConnectionParams.setSoTimeout(params, 1000);
+
+		HttpUriRequest httpRequest = new HttpGet(uri);
+
+		HttpResponse httpResponse = null;
+
+		try {
+			Log.e("レスポンス作成開始", "debug11");
+			httpResponse = httpClient.execute(httpRequest);
+			if (httpResponse != null)
+				Log.e("レスポンス作成", "debug10");
+			else
+				Log.e("レスポンス作成失敗", "debug10");
+		} catch (ClientProtocolException e) {
+			/* 例外処理 */
+			Log.e("レスポンス作成失敗", "debug13");
+		} catch (IOException e) {
+			/* 例外処理 */
+			Log.e("レスポンス作成失敗", "debug13");
+		}
+
+		String json = null;
+
+		if (httpResponse != null
+				&& httpResponse.getStatusLine().getStatusCode() == HttpStatus.SC_OK) {
+			HttpEntity httpEntity = httpResponse.getEntity();
+			try {
+				Log.e("JSONデータの取得", "debug9");
+				json = EntityUtils.toString(httpEntity);
+			} catch (ParseException e) {
+				/* 例外処理 */
+			} catch (IOException e) {
+				/* 例外処理 */
+			} finally {
+				try {
+					httpEntity.consumeContent();
+				} catch (IOException e) {
+					/* 例外処理 */
+				}
+			}
+		}
+
+		httpClient.getConnectionManager().shutdown();
+
+		Log.e("HTTP通信終了", "debug3");
+		
+		try {
+			Log.e("導入", "debug8");
+			JSONObject rootObject = new JSONObject(json);
+			JSONObject responseObject = rootObject.getJSONObject("response");
+			JSONArray venuesArray = responseObject.getJSONArray("venues");
+			
+			int id = 0;               /* 訪れたユーザの数の一番多いvenueの順番 */
+			int distance = 10000;     /* 現在地からvenueまでの距離 */
+			
+			/* 取得したvenueリスト中のvenueの数をログに出力 */
+			Log.e(String.valueOf(venuesArray.length()), "venue数");
+			
+			/* 取得したvenueリストのvenueの中で距離の一番近いvenueを検索 */
+			for(int i = 0; i < venuesArray.length(); i++){
+				JSONObject locationObject = venuesArray.getJSONObject(i).getJSONObject("location");
+				if (distance > Integer.parseInt(locationObject.getString("distance"))){
+					distance = Integer.parseInt(locationObject.getString("distance"));
+					id = i;
+				}
+			}
+			
+			JSONArray categoriesArray = venuesArray.getJSONObject(id).getJSONArray("categories");
+
+			Log.e("オブジェクトのさかのぼり", "debug5");
+			JSONObject bookObject[] = new JSONObject[2];
+
+			bookObject[0] = venuesArray.getJSONObject(id);
+			bookObject[1] = categoriesArray.getJSONObject(0);
+
+			Log.e("オブジェクトの代入", "debug6");
+			/* 地名のデータを取得 */
+			name = bookObject[0].getString("name");
+
+			/* カテゴリのデータを取得 */
+			category = bookObject[1].getString("shortName");
+
+			Log.e("データ取得", "debug7");
+
+			// resultsString = "成功";
+		} catch (Exception e) {
+			/* 例外処理 */
+			// resultsString = "失敗";
+			Log.e("ERROR", e.toString());
+		}
+	}
+
+	/* データベース取得 */
 	public void sDatabase() {
 		String out = "";
 		try {
@@ -419,8 +461,6 @@ public class LocationCheckerActivity extends Activity implements
 			}
 
 			/* データベースの内容を出力 */
-			/* text.setText(out); */
-
 			Intent intent = new Intent();
 			intent.setClassName("jp.dip.commonsense","jp.dip.commonsense.subActivity");
 			intent.putExtra("jp.dip.commonsense.testString", out);
@@ -556,6 +596,17 @@ public class LocationCheckerActivity extends Activity implements
 		}
 		
 	}
+	
+
+	/* 自宅、大学などの登録 */
+	public void entry() {
+		
+		/* 登録モジュールを出力 */
+		Intent intent = new Intent();
+		intent.setClassName("jp.dip.commonsense","jp.dip.commonsense.entryActivity");
+
+		startActivity(intent);
+	}
 
 	/**
 	 * ボタンが押されたとき呼び出される メニューアイテムを作成する
@@ -565,6 +616,7 @@ public class LocationCheckerActivity extends Activity implements
 		MENU_SELECT_A = menu.add(R.string.sDatabase);
 		MENU_SELECT_B = menu.add(R.string.dDatabase);
 		MENU_SELECT_C = menu.add(R.string.csvExport);
+		MENU_SELECT_D = menu.add(R.string.entry);
 		return true;
 	}
 
@@ -578,6 +630,8 @@ public class LocationCheckerActivity extends Activity implements
 			dDatabase();
 		} else if (item == MENU_SELECT_C) {
 			csvExport();
+		} else if (item == MENU_SELECT_D) {
+			entry();
 		}
 		return false;
 	}

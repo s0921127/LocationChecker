@@ -22,6 +22,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".subActivity" android:label="@string/sub_name"></activity>
+        <activity android:name=".entryActivity" android:label="@string/entry_name"></activity>
     </application>
     
     <!-- インターネットアクセス権 -->
