@@ -20,7 +20,7 @@ public class SQLiteHelper {
     
     /** ƒe[ƒuƒ‹ì¬‚ÌSQL•¶ */
     private String CREATE_TABLE_PROFILE =
-        "create table profile (" +
+        "create table profileDB (" +
         		"_id integer primary key autoincrement," + 
         		"Latitude text not null," + 
         		"Longitude text not null," + 
