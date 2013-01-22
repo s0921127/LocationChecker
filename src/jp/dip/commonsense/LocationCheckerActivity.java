@@ -61,12 +61,17 @@ public class LocationCheckerActivity extends Activity implements
 	/* データベース利用の設定 */
 	SQLiteDatabase locationDB = null;
 
-	int count = 0; /* onLocationChangedの実行回数カウント用 */
-	String glat; /* 経度 */
-	String glong; /* 緯度 */
-	String name; /* 地名 */
-	String category; /* カテゴリ */
-
+	private String glat;                        /* 経度 */
+	private String glong;                       /* 緯度 */
+	private String name;                        /* ログに格納する地名 */
+	private String category;                        /* ログに格納する地名 */
+	private String pName;                        /* 有意位置DBから取得した地名 */
+	private String pCategory;                    /* 有意位置DBから取得したカテゴリ */
+	private String hName;                        /* foursquareから取得した地名 */
+	private String hCategory;                    /* foursquareから取得したカテゴリ */
+	private float pDistance = 10000;     /* 一番近い有意位置との距離 */
+	private float hDistance = 10000;        /* 一番近いvenueとの距離 */
+	
 	private MenuItem MENU_SELECT_A; /* データベース出力用ボタン */
 	private MenuItem MENU_SELECT_B; /* データベース入力用ボタン */
 	private MenuItem MENU_SELECT_C; /* CSV出力用ボタン */
@@ -76,7 +81,6 @@ public class LocationCheckerActivity extends Activity implements
 	private static final int ID_LOCATION_PROVIDER_STATUS = 1;
 	private static final String PROVIDER_ENABLED = " ENABLED ";
 	private static final String PROVIDER_DISABLED = " DISABLED ";
-	private static final int DISTANCE_MIN = 25;
 
 	private LocationManager locationManager;
 	private String bestProvider;
@@ -227,16 +231,14 @@ public class LocationCheckerActivity extends Activity implements
 		glat = String.valueOf(location.getLatitude());
 		glong = String.valueOf(location.getLongitude());
 		
-		double distance = 0;
-
 		/* android.text.format.Timeクラスでの現在日時 */
 		Time time = new Time();
 		time.setToNow();
 		String tmp = time.year + "/" + (time.month + 1) + "/" + time.monthDay
 				+ " " + time.hour + ":" + time.minute + ":" + time.second;
 
-		logText.setText(glat);
-		latText.setText(glong);
+		latText.setText(glat);
+		logText.setText(glong);
 		providerText.setText(String.valueOf(location.getProvider()));
 		locationTimeText.setText(tmp);
 
@@ -254,9 +256,22 @@ public class LocationCheckerActivity extends Activity implements
 
 		try {
 			
-			distance = distanceBetween();
-			if(DISTANCE_MIN == distance){
-				httpRequest();
+			distanceBetween();
+			httpRequest();
+			
+			Log.v("有意位置での最短距離", String.valueOf(pDistance));
+			Log.v("foursquareでの最短距離", String.valueOf(hDistance));
+			
+			if (pDistance <= hDistance) {
+				
+				/* 有意位置の地名とカテゴリを格納する */
+				name = pName;
+				category = pCategory;
+			} else {
+				
+				/* foursquareから取得した地名とカテゴリを格納 */
+				name = hName;
+				category = hCategory;
 			}
 			
 			nameText.setText(name);
@@ -280,6 +295,10 @@ public class LocationCheckerActivity extends Activity implements
 			locationDB.endTransaction();
 
 			Log.e("データベース格納", "debug4");
+			
+			/* 地名とカテゴリの初期化処理 */
+			name = null;
+			category = null;
 
 			// resultsString = "成功";
 		} catch (Exception e) {
@@ -338,9 +357,7 @@ public class LocationCheckerActivity extends Activity implements
 	}
 	
 	/* 2点間の距離を計算 */
-	public double distanceBetween() {
-		
-		double distance = DISTANCE_MIN;
+	public void distanceBetween() {
 		
 		try {
 			/* クエリの結果を取得 */
@@ -350,22 +367,16 @@ public class LocationCheckerActivity extends Activity implements
 			/* 取得結果を文字列結合 */
 			while (cursor.moveToNext()) {
 
-				Log.v(String.valueOf(Double.valueOf(glat)), "現在の緯度");
-				Log.v(String.valueOf(Double.valueOf(glong)), "現在の経度");
-				Log.v(String.valueOf(cursor.getDouble(0)), "補正の緯度");
-				Log.v(String.valueOf(cursor.getDouble(1)), "補正の経度");
-
 				/* 2点間の距離を計算 */
 				float[] results = new float[1];
 				Location.distanceBetween(Double.valueOf(glat),
 						Double.valueOf(glong), cursor.getDouble(0),
 						cursor.getDouble(1), results);
-				Log.v(String.valueOf(results[0]), "自宅からの距離");
 
-				if (distance > results[0]) {
-					distance = results[0];
-					name = cursor.getString(2);
-					category = cursor.getString(3);
+				if (pDistance > results[0]) {
+					pDistance = results[0];
+					pName = cursor.getString(2);
+					pCategory = cursor.getString(3);
 				}
 			}
 		} catch (Exception e) {
@@ -376,7 +387,6 @@ public class LocationCheckerActivity extends Activity implements
 			/* text.setText("error!"); */
 		}
 		
-		return distance;
 	}
 
 	/* foursquare APIにURLでリクエストし，地名とカテゴリを取得 */
@@ -470,25 +480,20 @@ public class LocationCheckerActivity extends Activity implements
 			JSONArray venuesArray = responseObject.getJSONArray("venues");
 
 			int id = 0; /* 訪れたユーザの数の一番多いvenueの順番 */
-			int distance = 10000; /* 現在地からvenueまでの距離 */
-
+			
 			/* 取得したvenueリスト中のvenueの数をログに出力 */
 			Log.e(String.valueOf(venuesArray.length()), "venue数");
 
 			/* 取得したvenueリストのvenueの中で距離の一番近いvenueを検索 */
 			for (int i = 0; i < venuesArray.length(); i++) {
-				JSONObject locationObject = venuesArray.getJSONObject(i)
-						.getJSONObject("location");
-				if (distance > Integer.parseInt(locationObject
-						.getString("distance"))) {
-					distance = Integer.parseInt(locationObject
-							.getString("distance"));
+				JSONObject locationObject = venuesArray.getJSONObject(i).getJSONObject("location");
+				if (hDistance > Integer.parseInt(locationObject.getString("distance"))) {
+					hDistance = Integer.parseInt(locationObject.getString("distance"));
 					id = i;
 				}
 			}
 
-			JSONArray categoriesArray = venuesArray.getJSONObject(id)
-					.getJSONArray("categories");
+			JSONArray categoriesArray = venuesArray.getJSONObject(id).getJSONArray("categories");
 
 			Log.e("オブジェクトのさかのぼり", "debug5");
 			JSONObject bookObject[] = new JSONObject[2];
@@ -498,10 +503,10 @@ public class LocationCheckerActivity extends Activity implements
 
 			Log.e("オブジェクトの代入", "debug6");
 			/* 地名のデータを取得 */
-			name = bookObject[0].getString("name");
+			hName = bookObject[0].getString("name");
 
 			/* カテゴリのデータを取得 */
-			category = bookObject[1].getString("shortName");
+			hCategory = bookObject[1].getString("shortName");
 
 			Log.e("データ取得", "debug7");
 

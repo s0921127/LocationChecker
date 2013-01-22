@@ -50,14 +50,18 @@ public class entryActivity extends Activity implements LocationListener, View.On
 	/* データベース利用の設定 */
 	SQLiteDatabase locationDB = null;
 	
-	String glat;         /* 経度 */
-	String glong;        /* 緯度 */
-	String name;         /* 地名 */
-	String category;     /* カテゴリ */
+	private String glat;          /* 経度 */
+	private String glong;         /* 緯度 */
+	private String ename;         /* 登録地名 */
+	private String ecategory;     /* 登録カテゴリ */	
+	private String name;          /* 地名 */
+	private String category;      /* カテゴリ */	
 	
 	private LocationManager locationManager;
 	
 	private MenuItem MENU_SELECT_A; /* データベース出力用ボタン */
+	
+	private static final int DISTANCE_MIN = 25;
 	
 	private TextView logText;          /* 経度のテキストビュー */
 	private TextView latText;          /* 緯度のテキストビュー */
@@ -68,6 +72,7 @@ public class entryActivity extends Activity implements LocationListener, View.On
 	private String bestProvider;
 	
 	private String[] columns_profile = { "_id","Latitude", "Longitude", "name", "category" };
+
 
 	
 	/** Called when the activity is first created. */
@@ -96,14 +101,28 @@ public class entryActivity extends Activity implements LocationListener, View.On
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
         
         Criteria criteria = new Criteria();
-        // PowerRequirement は設定しないのがベストプラクティス
-        // Accuracy は設定しないのがベストプラクティス
-        //criteria.setAccuracy(Criteria.ACCURACY_FINE);	← Accuracy で最もやってはいけないパターン
-        // 以下は必要により     		
-        criteria.setBearingRequired(false);	// 方位不要     		
-        criteria.setSpeedRequired(false);	// 速度不要   	
-        criteria.setAltitudeRequired(false);	// 高度不要
-        bestProvider = locationManager.getBestProvider(criteria, true);
+		// PowerRequirement は設定しないのがベストプラクティス
+		// Accuracy は設定しないのがベストプラクティス
+		// criteria.setAccuracy(Criteria.ACCURACY_FINE); ← Accuracy
+		// で最もやってはいけないパターン
+		// 以下は必要により
+		criteria.setBearingRequired(false); // 方位不要
+		criteria.setSpeedRequired(false); // 速度不要
+		criteria.setAltitudeRequired(false); // 高度不要
+		bestProvider = locationManager.getBestProvider(criteria, true);
+		Location locate = locationManager.getLastKnownLocation(bestProvider);
+
+		if(locate == null){  
+			 // 現在地が取得できなかった場合，無線測位で取得してみる  
+			 locate = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);  
+			 bestProvider = LocationManager.NETWORK_PROVIDER;
+		}
+		
+		if(locate == null){  
+			// 現在地が取得できなかった場合，GPSで取得してみる  
+			locate = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER); 
+			bestProvider = LocationManager.GPS_PROVIDER;
+		} 
 
         if(intent != null){
         	
@@ -128,7 +147,7 @@ public class entryActivity extends Activity implements LocationListener, View.On
     			public void onItemSelected(AdapterView<?> parent,View view, int position, long id) {
     				Spinner spinner = (Spinner) parent;
     				String item = (String) spinner.getSelectedItem();
-    				category = item;
+    				ecategory = item;
     				//Toast.makeText(entryActivity.this,String.format("%sが選択されました。", item),Toast.LENGTH_SHORT).show();
     			}
 
@@ -176,18 +195,18 @@ public class entryActivity extends Activity implements LocationListener, View.On
 			Log.v("送信ボタン押下", "成功");
 			
 			EditText nameEdit = (EditText) findViewById(R.id.entry_name);
-			name = nameEdit.getText().toString();
-			Log.v(name, "地名");
+			ename = nameEdit.getText().toString();
+			Log.v(ename, "地名");
 			
-			if(!name.equals("")){
+			if(!ename.equals("")){
 				
 				/* データベース挿入処理 */
 				locationDB.beginTransaction();
 				ContentValues val = new ContentValues();
 				val.put("latitude", glat);
 				val.put("longitude", glong);
-				val.put("name", name);
-				val.put("category", category);
+				val.put("name", ename);
+				val.put("category", ecategory);
 				locationDB.insert("profileDB", "", val);
 				locationDB.setTransactionSuccessful();
 				locationDB.endTransaction();
@@ -213,10 +232,22 @@ public class entryActivity extends Activity implements LocationListener, View.On
     	
     	glat = String.valueOf(location.getLatitude());
 		glong = String.valueOf(location.getLongitude());
-		logText.setText(glat);
-		latText.setText(glong);
+		latText.setText(glat);
+		logText.setText(glong);
 		
-		httpRequest();
+		double distance = 0;
+		
+		distance = distanceBetween();
+		
+		Log.v("距離", String.valueOf(distance));
+		
+		if(DISTANCE_MIN == distance){
+			httpRequest();
+		}
+		
+		/* テキストビューに出力 */
+		nameText.setText(name);
+		categoryText.setText(category);
 		
 		locationManager.removeUpdates(this);
     }
@@ -245,6 +276,48 @@ public class entryActivity extends Activity implements LocationListener, View.On
             break;
         }
     }
+    
+    /* 2点間の距離を計算 */
+	public double distanceBetween() {
+		
+		double distance = DISTANCE_MIN;
+		
+		try {
+			/* クエリの結果を取得 */
+			Cursor cursor = locationDB.query("profileDB", columns_profile,
+					null, null, null, null, "_id");
+
+			/* 取得結果を文字列結合 */
+			while (cursor.moveToNext()) {
+
+				Log.v(String.valueOf(Double.valueOf(glat)), "現在の緯度");
+				Log.v(String.valueOf(Double.valueOf(glong)), "現在の経度");
+				Log.v(String.valueOf(cursor.getDouble(1)), "補正の緯度");
+				Log.v(String.valueOf(cursor.getDouble(2)), "補正の経度");
+
+				/* 2点間の距離を計算 */
+				float[] results = new float[1];
+				Location.distanceBetween(Double.valueOf(glat),
+						Double.valueOf(glong), cursor.getDouble(1),
+						cursor.getDouble(2), results);
+				Log.v(String.valueOf(results[0]), "距離");
+
+				if (distance > results[0]) {
+					distance = results[0];
+					name = cursor.getString(3);
+					category = cursor.getString(4);
+				}
+			}
+		} catch (Exception e) {
+
+			/* エラー処理 */
+			Log.e("ERROR", e.toString());
+			//Toast.makeText(this, "失敗", Toast.LENGTH_LONG).show();
+			/* text.setText("error!"); */
+		}
+		
+		return distance;
+	}
     
     /* foursquare APIにURLでリクエストし，地名とカテゴリを取得 */
 	public void httpRequest() {
@@ -365,14 +438,10 @@ public class entryActivity extends Activity implements LocationListener, View.On
 
 			Log.e("オブジェクトの代入", "debug6");
 			/* 地名のデータを取得 */
-			String pName = bookObject[0].getString("name");
+			name = bookObject[0].getString("name");
 
 			/* カテゴリのデータを取得 */
-			String pCategory = bookObject[1].getString("shortName");
-			
-			/* テキストビューに出力 */
-			nameText.setText(pName);
-			categoryText.setText(pCategory);
+			category = bookObject[1].getString("shortName");
 
 			Log.e("データ取得", "debug7");
 
