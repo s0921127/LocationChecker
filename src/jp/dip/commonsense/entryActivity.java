@@ -14,6 +14,7 @@ import org.apache.http.params.HttpConnectionParams;
 import org.apache.http.params.HttpParams;
 import org.apache.http.util.EntityUtils;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import android.app.Activity;
@@ -54,14 +55,18 @@ public class entryActivity extends Activity implements LocationListener, View.On
 	private String glong;         /* 緯度 */
 	private String ename;         /* 登録地名 */
 	private String ecategory;     /* 登録カテゴリ */	
-	private String name;          /* 地名 */
-	private String category;      /* カテゴリ */	
+	private String name;                 /* ログに格納する地名 */
+	private String category;             /* ログに格納する地名 */
+	private String pName;                /* 有意位置の地名 */
+	private String pCategory;            /* 有意位置のカテゴリ */
+	private String hName;                /* venueの地名 */
+	private String hCategory;            /* venueのカテゴリ */
+	private float pDistance = 10000;     /* 有意位置との距離 */
+	private float hDistance = 10000;     /* venueとの距離 */	
 	
 	private LocationManager locationManager;
 	
 	private MenuItem MENU_SELECT_A; /* データベース出力用ボタン */
-	
-	private static final int DISTANCE_MIN = 25;
 	
 	private TextView logText;          /* 経度のテキストビュー */
 	private TextView latText;          /* 緯度のテキストビュー */
@@ -235,15 +240,25 @@ public class entryActivity extends Activity implements LocationListener, View.On
 		latText.setText(glat);
 		logText.setText(glong);
 		
-		double distance = 0;
 		
-		distance = distanceBetween();
+		distanceBetween();
+		httpRequest();
 		
-		Log.v("距離", String.valueOf(distance));
+		Log.v("有意位置での最短距離", String.valueOf(pDistance));
+		Log.v("foursquareでの最短距離", String.valueOf(hDistance));
 		
-		if(DISTANCE_MIN == distance){
-			httpRequest();
+		if (pDistance <= hDistance) {
+			
+			/* 有意位置の地名とカテゴリを格納する */
+			name = pName;
+			category = pCategory;
+		} else {
+			
+			/* foursquareから取得した地名とカテゴリを格納 */
+			name = hName;
+			category = hCategory;
 		}
+
 		
 		/* テキストビューに出力 */
 		nameText.setText(name);
@@ -278,9 +293,8 @@ public class entryActivity extends Activity implements LocationListener, View.On
     }
     
     /* 2点間の距離を計算 */
-	public double distanceBetween() {
+	public void distanceBetween() {
 		
-		double distance = DISTANCE_MIN;
 		
 		try {
 			/* クエリの結果を取得 */
@@ -290,11 +304,6 @@ public class entryActivity extends Activity implements LocationListener, View.On
 			/* 取得結果を文字列結合 */
 			while (cursor.moveToNext()) {
 
-				Log.v(String.valueOf(Double.valueOf(glat)), "現在の緯度");
-				Log.v(String.valueOf(Double.valueOf(glong)), "現在の経度");
-				Log.v(String.valueOf(cursor.getDouble(1)), "補正の緯度");
-				Log.v(String.valueOf(cursor.getDouble(2)), "補正の経度");
-
 				/* 2点間の距離を計算 */
 				float[] results = new float[1];
 				Location.distanceBetween(Double.valueOf(glat),
@@ -302,10 +311,10 @@ public class entryActivity extends Activity implements LocationListener, View.On
 						cursor.getDouble(2), results);
 				Log.v(String.valueOf(results[0]), "距離");
 
-				if (distance > results[0]) {
-					distance = results[0];
-					name = cursor.getString(3);
-					category = cursor.getString(4);
+				if (pDistance > results[0]) {
+					pDistance = results[0];
+					pName = cursor.getString(3);
+					pCategory = cursor.getString(4);
 				}
 			}
 		} catch (Exception e) {
@@ -315,8 +324,6 @@ public class entryActivity extends Activity implements LocationListener, View.On
 			//Toast.makeText(this, "失敗", Toast.LENGTH_LONG).show();
 			/* text.setText("error!"); */
 		}
-		
-		return distance;
 	}
     
     /* foursquare APIにURLでリクエストし，地名とカテゴリを取得 */
@@ -410,25 +417,34 @@ public class entryActivity extends Activity implements LocationListener, View.On
 			JSONArray venuesArray = responseObject.getJSONArray("venues");
 
 			int id = 0; /* 訪れたユーザの数の一番多いvenueの順番 */
-			int distance = 10000; /* 現在地からvenueまでの距離 */
 
 			/* 取得したvenueリスト中のvenueの数をログに出力 */
 			Log.e(String.valueOf(venuesArray.length()), "venue数");
-
-			/* 取得したvenueリストのvenueの中で距離の一番近いvenueを検索 */
+			
 			for (int i = 0; i < venuesArray.length(); i++) {
-				JSONObject locationObject = venuesArray.getJSONObject(i)
-						.getJSONObject("location");
-				if (distance > Integer.parseInt(locationObject
-						.getString("distance"))) {
-					distance = Integer.parseInt(locationObject
-							.getString("distance"));
-					id = i;
-				}
+				JSONObject locationObject = venuesArray.getJSONObject(i).getJSONObject("location");
+				JSONArray categoriesArray = venuesArray.getJSONObject(i).getJSONArray("categories");
+
+				JSONObject bookObject[] = new JSONObject[2];
+
+				try {
+					bookObject[0] = venuesArray.getJSONObject(i);
+					bookObject[1] = categoriesArray.getJSONObject(0);
+					
+					//Log.e("venueリスト閲覧数", String.valueOf(i));
+					if (hDistance > Integer.parseInt(locationObject.getString("distance"))) {
+						hDistance = Integer.parseInt(locationObject.getString("distance"));
+						id = i;
+					}
+				} catch (JSONException e) {
+					// 例外処理
+					Log.e("ERROR", e.toString());
+				}								
 			}
 
-			JSONArray categoriesArray = venuesArray.getJSONObject(id)
-					.getJSONArray("categories");
+			Log.e("選択したvenueの順番", String.valueOf(id));
+			
+			JSONArray categoriesArray = venuesArray.getJSONObject(id).getJSONArray("categories");
 
 			Log.e("オブジェクトのさかのぼり", "debug5");
 			JSONObject bookObject[] = new JSONObject[2];
@@ -438,10 +454,13 @@ public class entryActivity extends Activity implements LocationListener, View.On
 
 			Log.e("オブジェクトの代入", "debug6");
 			/* 地名のデータを取得 */
-			name = bookObject[0].getString("name");
+			hName = bookObject[0].getString("name");
 
 			/* カテゴリのデータを取得 */
-			category = bookObject[1].getString("shortName");
+			hCategory = bookObject[1].getString("shortName");
+			
+			Log.e("選択したvenueの地名", hName);
+			Log.e("選択したvenueのカテゴリ", hCategory);
 
 			Log.e("データ取得", "debug7");
 

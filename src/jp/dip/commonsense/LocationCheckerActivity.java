@@ -6,7 +6,6 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import org.apache.http.HttpEntity;
@@ -21,6 +20,7 @@ import org.apache.http.params.HttpConnectionParams;
 import org.apache.http.params.HttpParams;
 import org.apache.http.util.EntityUtils;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import android.app.Activity;
@@ -56,26 +56,25 @@ import android.widget.Toast;
 public class LocationCheckerActivity extends Activity implements
 		LocationListener, GpsStatus.Listener, View.OnClickListener {
 	/* = 0 の部分は、適当な値に変更してください（とりあえず試すには問題ないですが） */
-	private static final int REQUEST_CODE = 1;
 
 	/* データベース利用の設定 */
 	SQLiteDatabase locationDB = null;
 
-	private String glat;                        /* 経度 */
-	private String glong;                       /* 緯度 */
-	private String name;                        /* ログに格納する地名 */
-	private String category;                        /* ログに格納する地名 */
-	private String pName;                        /* 有意位置DBから取得した地名 */
-	private String pCategory;                    /* 有意位置DBから取得したカテゴリ */
-	private String hName;                        /* foursquareから取得した地名 */
-	private String hCategory;                    /* foursquareから取得したカテゴリ */
-	private float pDistance = 10000;     /* 一番近い有意位置との距離 */
-	private float hDistance = 10000;        /* 一番近いvenueとの距離 */
+	private String glat;                 /* 経度 */
+	private String glong;                /* 緯度 */
+	private String name;                 /* ログに格納する地名 */
+	private String category;             /* ログに格納する地名 */
+	private String pName;                /* 有意位置の地名 */
+	private String pCategory;            /* 有意位置のカテゴリ */
+	private String hName;                /* venueの地名 */
+	private String hCategory;            /* venueのカテゴリ */
+	private float pDistance = 10000;     /* 有意位置との距離 */
+	private float hDistance = 10000;     /* venueとの距離 */
 	
-	private MenuItem MENU_SELECT_A; /* データベース出力用ボタン */
-	private MenuItem MENU_SELECT_B; /* データベース入力用ボタン */
-	private MenuItem MENU_SELECT_C; /* CSV出力用ボタン */
-	private MenuItem MENU_SELECT_D; /* 登録ボタン */
+	private MenuItem MENU_SELECT_A;     /* データベース出力用ボタン */
+	private MenuItem MENU_SELECT_B;     /* データベース入力用ボタン */
+	private MenuItem MENU_SELECT_C;     /* CSV出力用ボタン */
+	private MenuItem MENU_SELECT_D;     /* 登録ボタン */
 
 	private static final int ID_LOCATION_PROVIDER_ENABLED = 0;
 	private static final int ID_LOCATION_PROVIDER_STATUS = 1;
@@ -86,14 +85,14 @@ public class LocationCheckerActivity extends Activity implements
 	private String bestProvider;
 	private Map<String, LinearLayout> layoutMap = new HashMap<String, LinearLayout>();
 
-	private TextView logText; /* 経度のテキストビュー */
-	private TextView latText; /* 緯度のテキストビュー */
-	private TextView providerText; /* プロバイダのテキストビュー */
-	private TextView locationTimeText; /* 現在時間のテキストビュー */
-	private TextView nameText; /* 経度のテキストビュー */
-	private TextView categoryText; /* 経度のテキストビュー */
+	private TextView logText;              /* 経度のテキストビュー */
+	private TextView latText;              /* 緯度のテキストビュー */
+	private TextView providerText;         /* プロバイダのテキストビュー */
+	private TextView locationTimeText;     /* 現在時間のテキストビュー */
+	private TextView nameText;             /* 経度のテキストビュー */
+	private TextView categoryText;         /* 経度のテキストビュー */
 	
-	/* テーブル作成 */
+	/* テーブル作成の設定 */
 	private String CREATE_TABLE_LOCATION = "create table locationDB("
 			+ "_id integer primary key autoincrement,"
 			+ "Latitude text not null,"
@@ -103,10 +102,12 @@ public class LocationCheckerActivity extends Activity implements
 			+ "hour text not null," + "minute text not null,"
 			+ "second text not null" + ")";
 	
+	/* locationDBから取得するフィールドの設定 */
 	private String[] columns_location = { "_id", "Latitude", "Longitude", "name",
 			"category", "year", "month", "monthDay", "hour", "minute",
 			"second" };
 	
+	/* profileDBから取得するフィールドの設定 */
 	private String[] columns_profile = { "Latitude", "Longitude", "name", "category" };
 
 	@Override
@@ -114,8 +115,7 @@ public class LocationCheckerActivity extends Activity implements
 		super.onCreate(savedInstanceState);
 
 		/* アプリ起動時にキーボードを表示しない */
-		this.getWindow().setSoftInputMode(
-				LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+		this.getWindow().setSoftInputMode(LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
 
 		setContentView(R.layout.main);
 
@@ -166,8 +166,7 @@ public class LocationCheckerActivity extends Activity implements
 		TextView providerName = new TextView(this);
 		TextView enabled = new TextView(this);
 		enabled.setId(ID_LOCATION_PROVIDER_ENABLED);
-		String e = locationManager.isProviderEnabled(bestProvider) ? PROVIDER_ENABLED
-				: PROVIDER_DISABLED;
+		String e = locationManager.isProviderEnabled(bestProvider) ? PROVIDER_ENABLED : PROVIDER_DISABLED;
 		enabled.setText(e);
 		TextView status = new TextView(this);
 		status.setId(ID_LOCATION_PROVIDER_STATUS);
@@ -487,12 +486,27 @@ public class LocationCheckerActivity extends Activity implements
 			/* 取得したvenueリストのvenueの中で距離の一番近いvenueを検索 */
 			for (int i = 0; i < venuesArray.length(); i++) {
 				JSONObject locationObject = venuesArray.getJSONObject(i).getJSONObject("location");
-				if (hDistance > Integer.parseInt(locationObject.getString("distance"))) {
-					hDistance = Integer.parseInt(locationObject.getString("distance"));
-					id = i;
-				}
+				JSONArray categoriesArray = venuesArray.getJSONObject(i).getJSONArray("categories");
+
+				JSONObject bookObject[] = new JSONObject[2];
+				
+				try {
+					bookObject[0] = venuesArray.getJSONObject(i);
+					bookObject[1] = categoriesArray.getJSONObject(0);
+					
+					//Log.e("venueリスト閲覧数", String.valueOf(i));
+					if (hDistance > Integer.parseInt(locationObject.getString("distance"))) {
+						hDistance = Integer.parseInt(locationObject.getString("distance"));
+						id = i;
+					}
+				} catch (JSONException e) {
+					// 例外処理
+					Log.e("ERROR", e.toString());
+				}								
 			}
 
+			Log.e("選択したvenueの順番", String.valueOf(id));
+			
 			JSONArray categoriesArray = venuesArray.getJSONObject(id).getJSONArray("categories");
 
 			Log.e("オブジェクトのさかのぼり", "debug5");
@@ -507,6 +521,9 @@ public class LocationCheckerActivity extends Activity implements
 
 			/* カテゴリのデータを取得 */
 			hCategory = bookObject[1].getString("shortName");
+			
+			Log.e("選択したvenueの地名", hName);
+			Log.e("選択したvenueのカテゴリ", hCategory);
 
 			Log.e("データ取得", "debug7");
 
